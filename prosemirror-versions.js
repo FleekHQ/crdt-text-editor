@@ -14,7 +14,12 @@ import * as random from 'lib0/random.js'
 import { html, render } from 'lit-html'
 import * as dom from 'lib0/dom.js'
 import * as pair from 'lib0/pair.js'
+import { Buckets, PushPathResult, KeyInfo, PrivateKey, WithKeyInfoOptions } from '@textile/hub'
+var browserImageSize = require('browser-image-size')
 
+// import * as BrowserFS from 'browserfs'
+// BrowserFS.initialize(new BrowserFS.FileSystem.InMemory());
+// var fs = require('fs');
 /**
  * @typedef {Object} Version
  * @property {number} date
@@ -22,16 +27,153 @@ import * as pair from 'lib0/pair.js'
  * @property {number} clientID
  */
 
+const ipfsGateway = 'https://hub.textile.io'
+const keyInfo = {
+    key: 'bih5fsouzxoiocmichxco27fgri'
+}
+const keyInfoOptions = {
+    debug: false
+}
+
+/**
+ * getIdentity uses a basic private key identity.
+ * The user's identity will be cached client side. This is long
+ * but ephemeral storage not sufficient for production apps.
+ * 
+ * Read more here:
+ * https://docs.textile.io/tutorials/hub/libp2p-identities/
+ */
+const getIdentity = async () => {
+  try {
+    var storedIdent = localStorage.getItem("identity")
+    if (storedIdent === null) {
+      throw new Error('No identity')
+    }
+    const restored = PrivateKey.fromString(storedIdent)
+    return restored
+  }
+  catch (e) {
+    /**
+     * If any error, create a new identity.
+     */
+    try {
+      const identity = PrivateKey.fromRandom()
+      const identityString = identity.toString()
+      localStorage.setItem("identity", identityString)
+      return identity
+    } catch (err) {
+      return err.message
+    }
+  }
+}
+  
+/**
+ * getBucketKey will create a new Buckets client with the UserAuth
+ * and then open our custom bucket named, 'space-docs-versions'
+ */
+const getBucketKey = async () => {
+  const identity = await getIdentity()
+  console.log('cap7')
+  if (!identity) {
+    throw new Error('Identity not set')
+  }
+  console.log('cap8')
+  const buckets = await Buckets.withKeyInfo(keyInfo, keyInfoOptions)
+  console.log('lolo buckets: ', buckets)
+  // Authorize the user and your insecure keys with getToken
+  console.log('identity: ', identity)
+  await buckets.getToken(identity)
+  console.log('cap9')
+  const buck = await buckets.getOrCreate('space-docs-versions')
+  console.log('cap10')
+  if (!buck.root) {
+    throw new Error('Failed to open bucket')
+  }
+  console.log('cap11')
+  console.log('buck root key', buck.root.key)
+  console.log('yooooooooooooo tony buckets: ', buckets)
+  return {buckets: buckets, bucketKey: buck.root.key};
+}
+
+/**
+ * Pushes files to the bucket
+ * @param file 
+ * @param path 
+ */
+const insertFile = async (file, path) => {
+  const {bucketKey, buckets} = await getBucketKey()
+
+  if (!buckets || !bucketKey) {
+    throw new Error('No bucket client or root key')
+  }
+  return await buckets.pushPath(bucketKey, path, file.stream())
+}
+
+/**
+ * processAndStore resamples the image and extracts the metadata. Next, it
+ * calls insertFile to store each of the samples plus the metadata in the bucket.
+ * @param image 
+ * @param path 
+ * @param name 
+ */
+const processAndStore = async (image, path, name) => {
+  console.log('tony3')
+  console.log('tony4')
+  const location = `${path}${name}`
+  console.log('tony5')
+  const raw = await insertFile(image, location)
+  console.log('tony6')
+  const metadata = {
+    cid: raw.path.cid.toString(),
+    name: name,
+    path: location
+  }
+  console.log('metadata is: ', metadata)
+  return metadata
+}
+
+console.log('cap1')
+// let identity;
+// async function setup() {
+//   console.log('yo1')
+//   identity = await getIdentity()
+//   console.log('yo2')
+// }
+// setup()
+console.log('cap2')
+// console.log('identity:', identity)
+console.log('cap3')
+console.log('cap4')
+// console.log('bucketKey:', bucketKey)
+console.log('cap5')
+// console.log('buckets:', buckets)
+console.log('cap6')
+
+/**
+ * getBucketLinks returns all the protocol endpoints for the bucket.
+ * Read more:
+ * https://docs.textile.io/hub/buckets/#bucket-protocols 
+ */
+const getBucketLinks = async () => {
+  const {bucketKey, buckets} = await getBucketKey()
+  if (!buckets || !bucketKey) {
+    console.error('No bucket client or root key')
+    return
+  }
+  const links = await buckets.links(bucketKey)
+  console.log('links: ', links)
+}
 /**
  * @param {Y.Doc} doc
  */
-const addVersion = doc => {
+const addVersion = async(doc) => {
   const versions = doc.getArray('versions')
   const prevVersion = versions.length === 0 ? null : versions.get(versions.length - 1)
   const prevSnapshot = prevVersion === null ? Y.emptySnapshot : Y.decodeSnapshot(prevVersion.snapshot)
   const snapshot = Y.snapshot(doc)
   console.log('doc is : ', doc);
   console.log('snapshot is: ', snapshot);
+  console.log('encode snapshot is: ', Y.encodeSnapshot(snapshot))
   if (prevVersion != null) {
     // account for the action of adding a version to ydoc
     prevSnapshot.sv.set(prevVersion.clientID, /** @type {number} */ (prevSnapshot.sv.get(prevVersion.clientID)) + 1)
@@ -44,6 +186,19 @@ const addVersion = doc => {
     }])
   }
   console.log('versions array: ', versions)
+  console.log('versions data stringified: ', JSON.stringify(versions))
+  // let data = JSON.stringify(versions)
+  // fs.writeFile('version-data.json', data);
+  const blob = new Blob([JSON.stringify(versions)], {type : 'application/json'});
+  console.log('blob generated: ', blob)
+  try {
+    console.log('tony1')
+    let response = await processAndStore(blob, 'version-history/', 'version-data.json')
+    let getLinks = await getBucketLinks()
+    console.log('tony2')
+  } catch(e) {
+    console.log(e)
+  }
 }
 
 const liveTracking = /** @type {HTMLInputElement} */ (dom.element('input', [
@@ -158,6 +313,8 @@ window.addEventListener('load', () => {
   //     console.log('loaded data from indexed db')
   // })
   console.log('entered load function')
+
+  // code for parsing the url
   var match,
       pl     = /\+/g,  // Regex for replacing addition symbol with a space
       search = /([^&=]+)=?([^&]*)/g,
@@ -168,6 +325,8 @@ window.addEventListener('load', () => {
   while (match = search.exec(query))
       urlParams[decode(match[1])] = decode(match[2]);
   console.log('tony:: ', urlParams.docID, 'password: ', urlParams.password)
+  // url is parsed
+
   // const provider = new WebsocketProvider('wss://demos.yjs.dev', 'prosemirror-versions', ydoc)
   const provider = new WebrtcProvider(urlParams.docID, ydoc, {
     password: urlParams.password,

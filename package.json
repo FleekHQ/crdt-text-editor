@@ -11,6 +11,9 @@
   "author": "Kevin Jahns <kevin.jahns@pm.me>",
   "license": "UNLICENSE",
   "dependencies": {
+    "@textile/hub": "^2.0.2",
+    "browser-image-size": "^1.1.0",
+    "browserfs": "^1.4.3",
     "lit-html": "^1.1.2",
     "prosemirror-example-setup": "^1.1.2",
     "prosemirror-model": "^1.11.0",
